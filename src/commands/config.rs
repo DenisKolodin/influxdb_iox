@@ -1,9 +1,8 @@
 //! Implementation of command line option for manipulating and showing server
 //! config
 
-use clap::arg_enum;
+use clap::{ArgEnum, Clap};
 use std::{net::SocketAddr, net::ToSocketAddrs, path::PathBuf};
-use structopt::StructOpt;
 
 /// The default bind address for the HTTP API.
 pub const DEFAULT_API_BIND_ADDR: &str = "127.0.0.1:8080";
@@ -11,8 +10,8 @@ pub const DEFAULT_API_BIND_ADDR: &str = "127.0.0.1:8080";
 /// The default bind address for the gRPC.
 pub const DEFAULT_GRPC_BIND_ADDR: &str = "127.0.0.1:8082";
 
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Clap)]
+#[clap(
     name = "server",
     about = "Runs in server mode (default)",
     long_about = "Run the IOx server.\n\nThe configuration options below can be \
@@ -34,14 +33,14 @@ pub struct Config {
     /// `debug,hyper::proto::h1=info` specifies debug logging for all modules
     /// except for the `hyper::proto::h1' module which will only display info
     /// level logging.
-    #[structopt(long = "--log", env = "RUST_LOG")]
+    #[clap(long = "--log", env = "RUST_LOG")]
     pub rust_log: Option<String>,
 
     /// Log message format. Can be one of:
     ///
     /// "rust" (default)
     /// "logfmt" (logfmt/Heroku style - https://brandur.org/logfmt)
-    #[structopt(long = "--log_format", env = "INFLUXDB_IOX_LOG_FORMAT")]
+    #[clap(long = "--log_format", env = "INFLUXDB_IOX_LOG_FORMAT")]
     pub log_format: Option<LogFormat>,
 
     /// This sets logging up with a pre-configured set of convenient log levels.
@@ -51,8 +50,8 @@ pub struct Config {
     /// low level libraries)
     ///
     /// This option is ignored if  --log / RUST_LOG are set
-    #[structopt(
-        short = "-v",
+    #[clap(
+        short = 'v',
         long = "--verbose",
         multiple = true,
         takes_value = false,
@@ -66,11 +65,11 @@ pub struct Config {
     /// replicated writes, WAL segments and Chunks. Must be unique in a group of
     /// connected or semi-connected IOx servers. Must be a number that can be
     /// represented by a 32-bit unsigned integer.
-    #[structopt(long = "--writer-id", env = "INFLUXDB_IOX_ID")]
+    #[clap(long = "--writer-id", env = "INFLUXDB_IOX_ID")]
     pub writer_id: Option<u32>,
 
     /// The address on which IOx will serve HTTP API requests.
-    #[structopt(
+    #[clap(
         long = "--api-bind",
         env = "INFLUXDB_IOX_BIND_ADDR",
         default_value = DEFAULT_API_BIND_ADDR,
@@ -79,7 +78,7 @@ pub struct Config {
     pub http_bind_address: SocketAddr,
 
     /// The address on which IOx will serve Storage gRPC API requests.
-    #[structopt(
+    #[clap(
         long = "--grpc-bind",
         env = "INFLUXDB_IOX_GRPC_BIND_ADDR",
         default_value = DEFAULT_GRPC_BIND_ADDR,
@@ -88,15 +87,16 @@ pub struct Config {
     pub grpc_bind_address: SocketAddr,
 
     /// The location InfluxDB IOx will use to store files locally.
-    #[structopt(long = "--data-dir", env = "INFLUXDB_IOX_DB_DIR")]
+    #[clap(long = "--data-dir", env = "INFLUXDB_IOX_DB_DIR")]
     pub database_directory: Option<PathBuf>,
 
-    #[structopt(
+    #[clap(
         long = "--object-store",
         env = "INFLUXDB_IOX_OBJECT_STORE",
-        possible_values = &ObjectStore::variants(),
+        possible_values = ObjectStore::VARIANTS,
         case_insensitive = true,
-        long_help = r#"Which object storage to use. If not specified, defaults to memory.
+        parse(try_from_str = ObjectStore::from_str_insensitive),
+        long_about = r#"Which object storage to use. If not specified, defaults to memory.
 
 Possible values (case insensitive):
 
@@ -120,7 +120,7 @@ Possible values (case insensitive):
     /// If using S3 for the object store, this item, as well
     /// as AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_DEFAULT_REGION must
     /// be set.
-    #[structopt(long = "--bucket", env = "INFLUXDB_IOX_BUCKET")]
+    #[clap(long = "--bucket", env = "INFLUXDB_IOX_BUCKET")]
     pub bucket: Option<String>,
 
     /// If set, Jaeger traces are emitted to this host
@@ -136,7 +136,7 @@ Possible values (case insensitive):
     ///
     /// The entire list of variables can be found in
     /// https://github.com/open-telemetry/opentelemetry-specification/blob/master/specification/sdk-environment-variables.md#jaeger-exporter
-    #[structopt(
+    #[clap(
         long = "--oetl_exporter_jaeger_agent",
         env = "OTEL_EXPORTER_JAEGER_AGENT_HOST"
     )]
@@ -157,7 +157,7 @@ pub fn load_config() -> Config {
     //
 
     //let args = std::env::args().filter(|arg| arg != "server");
-    Config::from_iter(strip_server(std::env::args()).iter())
+    Config::parse_from(strip_server(std::env::args()).iter())
 }
 
 fn parse_socket_addr(s: &str) -> std::io::Result<SocketAddr> {
@@ -188,14 +188,18 @@ fn strip_server(args: impl Iterator<Item = String>) -> Vec<String> {
         .collect::<Vec<_>>()
 }
 
-arg_enum! {
-    #[derive(Debug, Copy, Clone, PartialEq)]
-    pub enum ObjectStore {
-        Memory,
-        File,
-        S3,
-        Google,
-        Azure,
+#[derive(Debug, Copy, Clone, PartialEq, ArgEnum)]
+pub enum ObjectStore {
+    Memory,
+    File,
+    S3,
+    Google,
+    Azure,
+}
+
+impl ObjectStore {
+    fn from_str_insensitive(s: &str) -> Result<Self, String> {
+        Self::from_str(s, true)
     }
 }
 

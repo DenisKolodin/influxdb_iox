@@ -65,7 +65,7 @@ pub enum Error {
     #[snafu(display("Error serving RPC: {}", source))]
     ServingRPC { source: self::rpc::Error },
 
-    #[snafu(display("Specifed {} for the object store, but not a bucket", object_store))]
+    #[snafu(display("Specifed {:?} for the object store, but not a bucket", object_store))]
     InvalidCloudObjectStoreConfiguration { object_store: ObjStoreOpt },
 
     #[snafu(display("Specified file for the object store, but not a database directory"))]

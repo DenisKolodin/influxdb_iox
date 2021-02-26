@@ -7,10 +7,9 @@
     clippy::clone_on_ref_ptr
 )]
 
-use clap::{crate_authors, crate_version, value_t, App, Arg, ArgMatches, SubCommand};
+use clap::{crate_authors, crate_version, App, Arg, ArgMatches, FromArgMatches, IntoApp};
 use dotenv::dotenv;
 use ingest::parquet::writer::CompressionLevel;
-use structopt::StructOpt;
 use tokio::runtime::Runtime;
 use tracing::{debug, error, info, warn};
 
@@ -34,7 +33,7 @@ enum ReturnCode {
 }
 
 fn main() -> Result<(), std::io::Error> {
-    let help = r#"InfluxDB IOx server and command line tools
+    let about = r#"InfluxDB IOx server and command line tools
 
 Examples:
     # Run the InfluxDB IOx server:
@@ -61,75 +60,75 @@ Examples:
     // load all environment variables from .env before doing anything
     load_dotenv();
 
-    let matches = App::new(help)
+    let matches = App::new(about)
         .version(crate_version!())
         .author(crate_authors!())
         .about("InfluxDB IOx server and command line tools")
         .subcommand(
-            SubCommand::with_name("convert")
+            App::new("convert")
                 .about("Convert one storage format to another")
                 .arg(
-                    Arg::with_name("INPUT")
-                        .help("The input files to read from")
+                    Arg::new("INPUT")
+                        .about("The input files to read from")
                         .required(true)
                         .index(1),
                 )
                 .arg(
-                    Arg::with_name("OUTPUT")
+                    Arg::new("OUTPUT")
                         .takes_value(true)
-                        .help("The filename or directory to write the output.")
+                        .about("The filename or directory to write the output.")
                         .required(true)
                         .index(2),
                 )
                 .arg(
-                    Arg::with_name("compression_level")
-                        .short("c")
+                    Arg::new("compression_level")
+                        .short('c')
                         .long("compression-level")
-                        .help("How much to compress the output data. 'max' compresses the most; 'compatibility' compresses in a manner more likely to be readable by other tools.")
+                        .about("How much to compress the output data. 'max' compresses the most; 'compatibility' compresses in a manner more likely to be readable by other tools.")
                         .takes_value(true)
                         .possible_values(&["max", "compatibility"])
                         .default_value("compatibility"),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("meta")
+            App::new("meta")
                 .about("Print out metadata information about a storage file")
                 .arg(
-                    Arg::with_name("INPUT")
-                        .help("The input filename to read from")
+                    Arg::new("INPUT")
+                        .about("The input filename to read from")
                         .required(true)
                         .index(1),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("stats")
+            App::new("stats")
                 .about("Print out storage statistics information to stdout. \
                         If a directory is specified, checks all files recursively")
                 .arg(
-                    Arg::with_name("INPUT")
-                        .help("The input filename or directory to read from")
+                    Arg::new("INPUT")
+                        .about("The input filename or directory to read from")
                         .required(true)
                         .index(1),
                 )
                 .arg(
-                    Arg::with_name("per-column")
+                    Arg::new("per-column")
                         .long("per-column")
-                        .help("Include detailed information per column")
+                        .about("Include detailed information per column")
                 )
                 .arg(
-                    Arg::with_name("per-file")
+                    Arg::new("per-file")
                         .long("per-file")
-                        .help("Include detailed information per file")
+                        .about("Include detailed information per file")
                 ),
         )
          .subcommand(
-            commands::config::Config::clap(),
+            commands::config::Config::into_app(),
         )
-        .arg(Arg::with_name("verbose").short("v").long("verbose").multiple(true).help(
+        .arg(Arg::new("verbose").short('v').long("verbose").multiple(true).about(
             "Enables verbose logging (use 'vv' for even more verbosity). You can also set log level via \
                        the environment variable RUST_LOG=<value>",
         ))
-        .arg(Arg::with_name("num-threads").long("num-threads").takes_value(true).help(
+        .arg(Arg::new("num-threads").long("num-threads").takes_value(true).about(
             "Set the maximum number of threads to use. Defaults to the number of cores on the system",
         ))
         .get_matches();
@@ -141,7 +140,7 @@ Examples:
     Ok(())
 }
 
-async fn dispatch_args(matches: ArgMatches<'_>) {
+async fn dispatch_args(matches: ArgMatches) {
     // Logging level is determined via:
     // 1. If RUST_LOG environment variable is set, use that value
     // 2. if `-vv` (multiple instances of verbose), use DEFAULT_DEBUG_LOG_LEVEL
@@ -150,12 +149,13 @@ async fn dispatch_args(matches: ArgMatches<'_>) {
     let logging_level = LoggingLevel::new(matches.occurrences_of("verbose"));
 
     match matches.subcommand() {
-        ("convert", Some(sub_matches)) => {
+        Some(("convert", sub_matches)) => {
             logging_level.setup_basic_logging();
             let input_path = sub_matches.value_of("INPUT").unwrap();
             let output_path = sub_matches.value_of("OUTPUT").unwrap();
-            let compression_level =
-                value_t!(sub_matches, "compression_level", CompressionLevel).unwrap();
+            let compression_level = sub_matches
+                .value_of_t::<CompressionLevel>("compression_level")
+                .unwrap();
             match commands::convert::convert(&input_path, &output_path, compression_level) {
                 Ok(()) => debug!("Conversion completed successfully"),
                 Err(e) => {
@@ -164,7 +164,7 @@ async fn dispatch_args(matches: ArgMatches<'_>) {
                 }
             }
         }
-        ("meta", Some(sub_matches)) => {
+        Some(("meta", sub_matches)) => {
             logging_level.setup_basic_logging();
             let input_filename = sub_matches.value_of("INPUT").unwrap();
             match commands::file_meta::dump_meta(&input_filename) {
@@ -175,7 +175,7 @@ async fn dispatch_args(matches: ArgMatches<'_>) {
                 }
             }
         }
-        ("stats", Some(sub_matches)) => {
+        Some(("stats", sub_matches)) => {
             logging_level.setup_basic_logging();
             let config = commands::stats::StatsConfig {
                 input_path: sub_matches.value_of("INPUT").unwrap().into(),
@@ -192,11 +192,12 @@ async fn dispatch_args(matches: ArgMatches<'_>) {
             }
         }
         // Handle the case where the user explicitly specified the server command
-        ("server", Some(sub_matches)) => {
+        Some(("server", sub_matches)) => {
             // Note don't set up basic logging here, different logging rules appy in server
             // mode
             let res =
-                influxdb_ioxd::main(logging_level, Some(Config::from_clap(sub_matches))).await;
+                influxdb_ioxd::main(logging_level, Some(Config::from_arg_matches(sub_matches)))
+                    .await;
 
             if let Err(e) = res {
                 error!("Server shutdown with error: {}", e);
@@ -204,7 +205,7 @@ async fn dispatch_args(matches: ArgMatches<'_>) {
             }
         }
         // handle the case where the user didn't specify a command
-        (_, _) => {
+        _ => {
             // Note don't set up basic logging here, different logging rules appy in server
             // mode
             let res = influxdb_ioxd::main(logging_level, None).await;
