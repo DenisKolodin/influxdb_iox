@@ -121,8 +121,10 @@ Examples:
                         .about("Include detailed information per file")
                 ),
         )
-         .subcommand(
-            commands::config::Config::into_app(),
+        .subcommand(commands::config::Config::into_app())
+        .subcommand(
+            App::new("create-dotenv")
+                .about("Prints a skeleton .env file to standard out")
         )
         .arg(Arg::new("verbose").short('v').long("verbose").multiple(true).about(
             "Enables verbose logging (use 'vv' for even more verbosity). You can also set log level via \
@@ -133,11 +135,46 @@ Examples:
         ))
         .get_matches();
 
+    if matches!(matches.subcommand(), Some(("create-dotenv", _))) {
+        dotenv_skeleton();
+        return Ok(());
+    }
+
     let tokio_runtime = get_runtime(matches.value_of("num-threads"))?;
     tokio_runtime.block_on(dispatch_args(matches));
 
     info!("InfluxDB IOx server shutting down");
     Ok(())
+}
+
+fn dotenv_skeleton() {
+    let config_app = commands::config::Config::into_app();
+    for arg in config_app.get_arguments() {
+        if let Some(env) = arg.get_env().and_then(|e| e.to_str()) {
+            if let Some(long_about) = arg.get_long_about() {
+                for line in long_about.lines() {
+                    println!("# {}", line)
+                }
+            }
+
+            if let Some(possible_values) = arg.get_possible_values() {
+                println!("# Possible values: {}", possible_values.join(", "));
+            }
+
+            print!("# {}=", env);
+
+            let default_values: Vec<_> = arg
+                .get_default_values()
+                .iter()
+                .flat_map(|v| v.to_str())
+                .collect();
+            if !default_values.is_empty() {
+                print!("{}", default_values.join(","));
+            }
+
+            println!("\n");
+        }
+    }
 }
 
 async fn dispatch_args(matches: ArgMatches) {
